@@ -1,0 +1,47 @@
+name: Repair portfolio images
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - .github/workflows/repair-images.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract embedded images into assets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re,base64,hashlib
+          path=Path('index.html')
+          html=path.read_text(encoding='utf-8')
+          assets=Path('assets')
+          assets.mkdir(exist_ok=True)
+          count=[0]
+          def replace(m):
+              mime,data=m.group(1),m.group(2)
+              ext={'jpeg':'jpg','png':'png','webp':'webp','gif':'gif'}.get(mime,mime)
+              try: raw=base64.b64decode(data,validate=True)
+              except Exception: return m.group(0)
+              name='image-'+hashlib.sha256(raw).hexdigest()[:16]+'.'+ext
+              (assets/name).write_bytes(raw)
+              count[0]+=1
+              return 'assets/'+name
+          html=re.sub(r'data:image/(png|jpeg|webp|gif);base64,([A-Za-z0-9+/=]+)',replace,html)
+          path.write_text(html,encoding='utf-8')
+          print('Extracted image references:',count[0])
+          PY
+      - name: Commit extracted image files and updated HTML
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html assets
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix missing portfolio images [skip ci]"
+            git push
+          fi
